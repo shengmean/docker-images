@@ -12,29 +12,29 @@ on:
   workflow_dispatch:
     inputs:
       source_repo_owner:
-        description: 'DR-lin-eng'
+        description: '源仓库的拥有者/组织名 (例如: octocat)'
         required: true
-        default: 'your-source-repo-owner'
+        default: 'DR-lin-eng'
       source_repo_name:
-        description: 'stock-scanner'
+        description: '源仓库名'
         required: true
-        default: 'your-public-source-repo-name'
+        default: 'stock-scanner'
       source_branch:
-        description: 'main'
+        description: '源分支名称'
         required: false
         default: 'main'
       target_folder:
-        description: 'stock-scanner-2.6web'
+        description: '在您的仓库中，内容将被复制到的目标文件夹名称'
         required: false
-        default: 'external_repo_content'
+        default: 'stock-scanner-2.6web'
       source_folder_path: # <<<<<< 新增：源仓库中的文件夹路径 >>>>>>
-        description: 'tree/main/2.6%20webapp（流式传输测试版）'
+        description: '可选：指定源仓库中的一个子文件夹路径 (例如: docs/api)。如果为空，则复制整个仓库内容。'
         required: false
-        default: '' # 默认为空，表示复制整个仓库
+        default: 'tree/main/2.6%20webapp（流式传输测试版' # 默认为空，表示复制整个仓库
       rename_copied_folder: # <<<<<< 新增：重命名开关 >>>>>>
-        description: '2.6webapp'
+        description: '如果指定了源文件夹路径，是否将其重命名为目标文件夹名称？'
         required: false
-        default: false
+        default: '2.6webapp'
         type: boolean
       commit_message:
         description: '自定义提交消息'
