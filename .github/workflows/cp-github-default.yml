@@ -1,4 +1,4 @@
-name: Copy External Repo Content to Subfolder (Public Repo) # 工作流名称：将外部公开仓库内容复制到子文件夹
+name: 默认工作流（用来复制） # 工作流名称：将外部公开仓库内容复制到子文件夹
 # 更新了名称，以更通用地反映可以复制整个仓库或指定文件夹
 
 on:
