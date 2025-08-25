@@ -1,0 +1,175 @@
+name: Copy External Repo Content to Subfolder (Public Repo) # 工作流名称：将外部公开仓库内容复制到子文件夹
+# 更新了名称，以更通用地反映可以复制整个仓库或指定文件夹
+
+on:
+  # push 事件触发：
+  # 当代码被推送到除 main 分支以外的任何分支时，此工作流会触发。
+  push:
+    branches:
+      - '**'
+      - '!main' # 排除 main 分支，防止循环触发。如果您的主要分支是 master，请修改此处为 '!master'
+
+  workflow_dispatch:
+    inputs:
+      source_repo_owner:
+        description: '源仓库的拥有者/组织名 (例如: octocat)'
+        required: true
+        default: 'your-source-repo-owner'
+      source_repo_name:
+        description: '源仓库名 (例如: Spoon-Knife)'
+        required: true
+        default: 'your-public-source-repo-name'
+      source_branch:
+        description: '源分支名称 (通常是 main, master 等)'
+        required: false
+        default: 'main'
+      target_folder:
+        description: '在您的仓库中，内容将被复制到的目标文件夹名称 (例如: external_repo_content)'
+        required: false
+        default: 'external_repo_content'
+      source_folder_path: # <<<<<< 新增：源仓库中的文件夹路径 >>>>>>
+        description: '可选：指定源仓库中的一个子文件夹路径 (例如: docs/api)。如果为空，则复制整个仓库内容。'
+        required: false
+        default: '' # 默认为空，表示复制整个仓库
+      rename_copied_folder: # <<<<<< 新增：重命名开关 >>>>>>
+        description: '如果指定了源文件夹路径，是否将其重命名为目标文件夹名称？'
+        required: false
+        default: false
+        type: boolean
+      commit_message:
+        description: '自定义提交消息'
+        required: false
+        default: 'feat: Sync external public repository content'
+
+permissions:
+  contents: write
+
+jobs:
+  copy-external-content:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout current repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine trigger type and set variables # 设置变量，包括新增加的文件夹路径和重命名开关
+        id: set_variables
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "::set-output name=SOURCE_REPO_OWNER::${{ github.event.inputs.source_repo_owner }}"
+            echo "::set-output name=SOURCE_REPO_NAME::${{ github.event.inputs.source_repo_name }}"
+            echo "::set-output name=SOURCE_BRANCH::${{ github.event.inputs.source_branch }}"
+            echo "::set-output name=TARGET_FOLDER::${{ github.event.inputs.target_folder }}"
+            echo "::set-output name=SOURCE_FOLDER_PATH::${{ github.event.inputs.source_folder_path }}" # <<<<<< 新增 >>>>>>
+            echo "::set-output name=RENAME_COPIED_FOLDER::${{ github.event.inputs.rename_copied_folder }}" # <<<<<< 新增 >>>>>>
+            echo "::set-output name=COMMIT_MESSAGE::${{ github.event.inputs.commit_message }}"
+          else
+            # 如果是 push 事件触发，使用预设的默认值
+            # 请务必在此处根据您的需求修改这些默认值
+            echo "::set-output name=SOURCE_REPO_OWNER::your-source-repo-owner"
+            echo "::set-output name=SOURCE_REPO_NAME::your-public-source-repo-name"
+            echo "::set-output name=SOURCE_BRANCH::main"
+            echo "::set-output name=TARGET_FOLDER::external_repo_content"
+            echo "::set-output name=SOURCE_FOLDER_PATH::" # <<<<<< 新增：push 触发时的默认值，默认不指定文件夹 >>>>>>
+            echo "::set-output name=RENAME_COPIED_FOLDER::false" # <<<<<< 新增：push 触发时的默认值，默认不重命名 >>>>>>
+            echo "::set-output name=COMMIT_MESSAGE::chore: Auto-sync external public repository content"
+          fi
+          echo "将使用源仓库: ${{ steps.set_variables.outputs.SOURCE_REPO_OWNER }}/${{ steps.set_variables.outputs.SOURCE_REPO_NAME }}"
+          echo "将使用源分支: ${{ steps.set_variables.outputs.SOURCE_BRANCH }}"
+          echo "源文件夹路径 (如果指定): ${{ steps.set_variables.outputs.SOURCE_FOLDER_PATH }}"
+          echo "是否重命名复制的文件夹: ${{ steps.set_variables.outputs.RENAME_COPIED_FOLDER }}"
+          echo "将内容复制到目标文件夹: ${{ steps.set_variables.outputs.TARGET_FOLDER }}"
+
+      - name: Create temporary directory for external repo # 步骤3：创建临时目录
+        run: mkdir -p "${{ steps.set_variables.outputs.TARGET_FOLDER }}_temp"
+
+      - name: Checkout source repository into temporary directory # 步骤4：将源仓库克隆到临时目录
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.set_variables.outputs.SOURCE_REPO_OWNER }}/${{ steps.set_variables.outputs.SOURCE_REPO_NAME }}
+          ref: ${{ steps.set_variables.outputs.SOURCE_BRANCH }}
+          path: ${{ steps.set_variables.outputs.TARGET_FOLDER }}_temp
+
+      - name: Clean and copy content (with folder option) # 步骤5：清理目标并复制内容（支持文件夹选项）
+        run: |
+          TARGET_FOLDER="${{ steps.set_variables.outputs.TARGET_FOLDER }}"
+          TEMP_EXTERNAL_REPO_PATH="${{ steps.set_variables.outputs.TARGET_FOLDER }}_temp"
+          SOURCE_FOLDER_PATH="${{ steps.set_variables.outputs.SOURCE_FOLDER_PATH }}"
+          RENAME_COPIED_FOLDER="${{ steps.set_variables.outputs.RENAME_COPIED_FOLDER }}" # 'true' or 'false'
+
+          # 确保临时克隆的仓库中没有 .git 文件夹
+          if [ -d "$TEMP_EXTERNAL_REPO_PATH/.git" ]; then
+            echo "Removing .git folder from temporary cloned repository."
+            rm -rf "$TEMP_EXTERNAL_REPO_PATH/.git"
+          fi
+
+          # 移除现有的目标文件夹内容，确保完全同步和清理
+          if [ -d "$TARGET_FOLDER" ]; then
+            echo "Removing existing target folder: $TARGET_FOLDER"
+            rm -rf "$TARGET_FOLDER"
+          fi
+          
+          # ==== 核心逻辑：根据 SOURCE_FOLDER_PATH 进行条件复制 ====
+          if [ -n "$SOURCE_FOLDER_PATH" ]; then # 如果 SOURCE_FOLDER_PATH 不为空 (即指定了文件夹)
+            echo "指定了源文件夹路径: $SOURCE_FOLDER_PATH"
+            SOURCE_FULL_PATH="$TEMP_EXTERNAL_REPO_PATH/$SOURCE_FOLDER_PATH"
+            
+            if [ -d "$SOURCE_FULL_PATH" ]; then
+              if [ "$RENAME_COPIED_FOLDER" = "true" ]; then # 如果开关打开，重命名
+                echo "重命名复制的文件夹为 $TARGET_FOLDER"
+                mkdir -p "$TARGET_FOLDER"
+                cp -r "$SOURCE_FULL_PATH/." "$TARGET_FOLDER/" || true
+              else # 如果开关未打开，则按原名复制到目标文件夹下
+                echo "复制文件夹 '$SOURCE_FOLDER_PATH' 到 '$TARGET_FOLDER' 下"
+                # 确保 TARGET_FOLDER 存在，然后将源文件夹复制到 TARGET_FOLDER 内部
+                mkdir -p "$TARGET_FOLDER"
+                cp -r "$SOURCE_FULL_PATH" "$TARGET_FOLDER/" || true
+              fi
+            else
+              echo "错误: 指定的源文件夹 $SOURCE_FULL_PATH 在源仓库中不存在。"
+              exit 1 # 找不到文件夹则退出失败
+            fi
+          else # 如果 SOURCE_FOLDER_PATH 为空 (即复制整个仓库)
+            echo "未指定源文件夹路径，复制整个仓库内容。"
+            mkdir -p "$TARGET_FOLDER"
+            cp -r "$TEMP_EXTERNAL_REPO_PATH/." "$TARGET_FOLDER/" || true
+          fi
+          # =======================================================
+          
+          # 清理临时目录
+          echo "Cleaning up temporary directory: $TEMP_EXTERNAL_REPO_PATH"
+          rm -rf "$TEMP_EXTERNAL_REPO_PATH"
+
+      - name: Configure Git user # 步骤6：配置 Git 用户信息，以便进行提交
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit and push changes # 步骤7：提交并推送更改
+        run: |
+          TARGET_FOLDER="${{ steps.set_variables.outputs.TARGET_FOLDER }}"
+          COMMIT_MESSAGE="${{ steps.set_variables.outputs.COMMIT_MESSAGE }}"
+          SOURCE_FOLDER_PATH="${{ steps.set_variables.outputs.SOURCE_FOLDER_PATH }}"
+          
+          # 根据是否指定了源文件夹路径来调整 git add 的路径
+          # 如果指定了 SOURCE_FOLDER_PATH 且没有重命名，那么可能还需要处理 TARGET_FOLDER/SOURCE_FOLDER_NAME
+          # 这里为了简化和确保可靠性，我们直接添加 TARGET_FOLDER 及其所有内容
+          git add "$TARGET_FOLDER"
+          
+          if git diff --cached --quiet; then
+            echo "没有需要提交的更改。"
+          else
+            # 强化提交消息的默认值，使其包含更多信息
+            GENERATED_COMMIT_MESSAGE="$COMMIT_MESSAGE"
+            if [ -n "$SOURCE_FOLDER_PATH" ]; then
+              GENERATED_COMMIT_MESSAGE="chore: Sync external folder '$SOURCE_FOLDER_PATH' from ${{ steps.set_variables.outputs.SOURCE_REPO_OWNER }}/${{ steps.set_variables.outputs.SOURCE_REPO_NAME }} @ ${{ steps.set_variables.outputs.SOURCE_BRANCH }} into '$TARGET_FOLDER'"
+            else
+              GENERATED_COMMIT_MESSAGE="chore: Sync entire repo from ${{ steps.set_variables.outputs.SOURCE_REPO_OWNER }}/${{ steps.set_variables.outputs.SOURCE_REPO_NAME }} @ ${{ steps.set_variables.outputs.SOURCE_BRANCH }} into '$TARGET_FOLDER'"
+            fi
+
+            git commit -m "$GENERATED_COMMIT_MESSAGE"
+            git push origin HEAD:"${{ github.ref_name }}"
+          fi
