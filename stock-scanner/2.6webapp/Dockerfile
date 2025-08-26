@@ -22,13 +22,13 @@ RUN apt-get update && apt-get install -y \
     && echo $TZ > /etc/timezone
 
 # 复制requirements文件
-COPY requirements.txt .
+COPY stock-scanner/2.6webapp/requirements.txt .
 
 # 安装Python依赖
 RUN pip install --no-cache-dir -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple/
 
 # 复制应用代码
-COPY . .
+COPY stock-scanner/2.6webapp/. .
 
 # 创建日志目录
 RUN mkdir -p /app/logs
