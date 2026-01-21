@@ -34,7 +34,7 @@ on:
       destination_subfolder_name: # <<<<<< 新增：指定目标子文件夹的名称 >>>>>>
         description: '可选：如果指定了源文件夹路径，内容将复制到目标文件夹下的这个子文件夹。如果为空，将保留源文件夹的名称。'
         required: false
-        default: '' # 您希望复制到的新子目录名称
+        default: 'tdx-api' # 您希望复制到的新子目录名称
       commit_message:
         description: '自定义提交消息'
         required: false
