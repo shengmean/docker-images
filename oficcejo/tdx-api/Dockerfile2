@@ -1,28 +1,29 @@
 FROM golang:1.22-alpine AS builder
 
-# 安装git
 RUN apk add --no-cache git
 
 WORKDIR /app
 
-# 克隆源码
-RUN git clone https://github.com/oficcejo/tdx-api.git .
+# 克隆并显示结构
+RUN git clone https://github.com/oficcejo/tdx-api.git . && \
+    echo "=== 显示文件结构 ===" && \
+    find . -type f -name "*.go" && \
+    echo "=== 显示目录结构 ===" && \
+    ls -laR
 
-# 显示文件结构用于调试
-RUN ls -la
-
-# 尝试编译，如果失败会显示错误信息
-RUN if [ -f "web/main.go" ]; then \
-        cd web && go build -o ../stock-web .; \
-    elif [ -f "main.go" ]; then \
-        go build -o stock-web .; \
+# 尝试查找并编译
+RUN find . -name "main.go" -type f | head -5 && \
+    if find . -name "main.go" -type f | grep -q "."; then \
+        MAIN_FILE=$(find . -name "main.go" -type f | head -1) && \
+        MAIN_DIR=$(dirname "$MAIN_FILE") && \
+        echo "在 $MAIN_DIR 找到 main.go" && \
+        cd "$MAIN_DIR" && \
+        go build -o /app/stock-web .; \
     else \
-        echo "错误：找不到main.go文件" && \
-        find . -name "*.go" -type f | head -10 && \
+        echo "错误：没有找到main.go文件" && \
         exit 1; \
     fi
 
-# 运行阶段
 FROM alpine:latest
 
 RUN apk --no-cache add ca-certificates
