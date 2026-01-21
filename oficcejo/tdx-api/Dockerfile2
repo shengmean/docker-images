@@ -1,99 +1,49 @@
 # 多阶段构建 - 第一阶段：构建
 FROM golang:1.22-alpine AS builder
 
-# 替换Alpine镜像源为阿里云，并安装 git（必须在同一个 RUN 指令中）
-RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories && \
-    apk update && \
-    apk add --no-cache git ca-certificates tzdata && \
-    echo "Git version:" && git --version
+# 替换Alpine镜像源为阿里云
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
+
+# 安装git
+RUN apk add --no-cache git
 
 # 设置工作目录
 WORKDIR /app
 
-# 设置Go代理（使用国内镜像加速）
+# 设置Go代理
 ENV GO111MODULE=on \
     GOPROXY=https://goproxy.cn,https://mirrors.aliyun.com/goproxy/,direct \
-    GOTOOLCHAIN=auto \
-    CGO_ENABLED=0 \
-    GOOS=linux \
-    GOARCH=amd64
+    CGO_ENABLED=0
 
-# 克隆仓库 - 添加重试机制和超时设置
-RUN git config --global http.postBuffer 524288000 && \
-    git clone --progress --verbose https://github.com/oficcejo/tdx-api.git . || \
-    (echo "第一次克隆失败，重试..." && sleep 2 && git clone https://github.com/oficcejo/tdx-api.git .) && \
+# 克隆并复制源码
+RUN git clone --depth 1 https://github.com/oficcejo/tdx-api.git . && \
     rm -rf .git
 
-# 或者使用更简单的方式（如果上面的方法失败）
-# RUN apk add --no-cache curl && \
-#     curl -L https://github.com/oficcejo/tdx-api/archive/refs/heads/main.tar.gz | tar xz --strip-components=1
+# 下载 Go 模块
+RUN go mod download
 
-# 检查文件结构
-RUN echo "=== 当前目录结构 ===" && \
-    ls -la && \
-    echo "=== 查找 go.mod ===" && \
-    find . -name "go.mod" -type f 2>/dev/null || echo "未找到 go.mod" && \
-    echo "=== 查找 main.go ===" && \
-    find . -name "main.go" -type f 2>/dev/null | head -5
+# 编译
+RUN go build -ldflags="-s -w" -o stock-web ./web
 
-# 如果找到 go.mod，则处理依赖
-RUN if [ -f go.mod ]; then \
-        echo "找到 go.mod，处理依赖..." && \
-        go mod tidy && \
-        go mod download; \
-    else \
-        echo "未找到 go.mod，跳过 go mod 步骤"; \
-    fi
-
-# 查找并构建 Go 项目
-RUN echo "=== 查找 Go 文件 ===" && \
-    find . -name "*.go" -type f 2>/dev/null | head -10 && \
-    echo "=== 尝试构建 ==="
-
-# 尝试在不同位置构建
-RUN if [ -f "web/main.go" ]; then \
-        echo "在 web/ 目录中找到 main.go，进行构建..." && \
-        cd web && \
-        go build -ldflags="-s -w" -o ../stock-web .; \
-    elif [ -f "cmd/main.go" ]; then \
-        echo "在 cmd/ 目录中找到 main.go，进行构建..." && \
-        cd cmd && \
-        go build -ldflags="-s -w" -o ../stock-web .; \
-    elif [ -f "main.go" ]; then \
-        echo "在根目录中找到 main.go，进行构建..." && \
-        go build -ldflags="-s -w" -o stock-web .; \
-    else \
-        echo "错误：未找到可构建的 Go 文件" && \
-        find . -name "*.go" -type f 2>/dev/null && \
-        exit 1; \
-    fi
-
-# 多阶段构建 - 第二阶段：运行
+# 第二阶段：运行
 FROM alpine:latest
 
 # 替换Alpine镜像源为阿里云
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories && \
-    apk --no-cache add ca-certificates tzdata && \
-    rm -rf /var/cache/apk/*
+    apk --no-cache add ca-certificates tzdata
 
-# 设置时区为上海
+# 设置时区
 ENV TZ=Asia/Shanghai
 
 # 创建非root用户
 RUN addgroup -g 1000 appuser && \
     adduser -D -u 1000 -G appuser appuser
 
-# 设置工作目录
 WORKDIR /app
 
-# 从构建阶段复制编译好的二进制文件
-COPY --from=builder /app/stock-web .
-
-# 复制静态文件（如果存在）
-COPY --from=builder /app/static ./static 2>/dev/null || echo "静态文件不存在，跳过"
-
-# 更改文件所有者
-RUN chown -R appuser:appuser /app
+# 从构建阶段复制文件
+COPY --from=builder --chown=appuser:appuser /app/stock-web .
+COPY --from=builder --chown=appuser:appuser /app/web/static ./static
 
 # 切换到非root用户
 USER appuser
@@ -103,7 +53,7 @@ EXPOSE 8080
 
 # 健康检查（简化版）
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget -qO- http://localhost:8080/health || exit 1
+    CMD wget -qO- http://localhost:8080/api/health || exit 1
 
 # 启动应用
 CMD ["./stock-web"]
